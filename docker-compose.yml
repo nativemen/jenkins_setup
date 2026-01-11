@@ -1,0 +1,54 @@
+services:
+    nginx-proxy:
+        image: nginx:stable-alpine
+        container_name: jenkins-nginx
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - ./nginx/jenkins.conf:/etc/nginx/conf.d/default.conf:ro
+            - ./certs:/etc/nginx/certs:ro
+        networks:
+            - j-net
+        restart: always
+
+    jenkins-master:
+        build:
+            context: ./master
+            dockerfile: Dockerfile
+        container_name: jenkins-master
+        environment:
+            - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Djava.awt.headless=true
+        tmpfs:
+            - /run/secrets/tmp:mode=1777,uid=1000,gid=1000
+        volumes:
+            - ~/jenkins_home:/var/jenkins_home
+            - ./master_init/init_bundle.groovy:/var/jenkins_home/init.groovy.d/init_bundle.groovy:ro
+            - ./tasks:/var/jenkins_home/tasks:ro
+        networks:
+            - j-net
+        restart: unless-stopped
+
+    jenkins-agent:
+        build:
+            context: ./agent
+            dockerfile: Dockerfile
+        container_name: jenkins-agent
+        environment:
+            - GEMINI_API_KEY=XXX # add your GEMINI API KEY
+        privileged: true
+        ulimits:
+            core: -1
+        volumes:
+            - ~/jenkins_home:/master_data:ro
+            - ./codes:/home/jenkins/codes:ro
+            - ./tasks:/home/jenkins/tasks:ro
+            - ./mcp_tools:/home/jenkins/mcp_tools:ro
+            - ./cores:/tmp/cores
+        networks:
+            - j-net
+        restart: unless-stopped
+
+networks:
+    j-net:
+        driver: bridge
