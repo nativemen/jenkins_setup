@@ -8,7 +8,7 @@ sudo rm -rfv ~/jenkins_home/*
 rm -rfv ./cores/*
 
 echo "--> [2/4] 正在生成 ECDSA SSL 证书..."
-mkdir -p ./certs ./secrets ./master_init
+mkdir -p ./certs
 
 # 生成 SSL 证书
 if [ ! -f "./certs/jenkins.key" ]; then
@@ -22,7 +22,7 @@ fi
 
 echo "--> [3/4] 检查目录权限..."
 # 确保 Jenkins 有权读取挂载的初始化脚本
-chmod -R 755 ./master_init
+chmod 755 ./master
 
 echo "--> [4/4] 启动全自动化集群..."
 # 使用 --build 确保 Dockerfile 的任何修改生效

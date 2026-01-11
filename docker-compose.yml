@@ -23,7 +23,7 @@ services:
             - /run/secrets/tmp:mode=1777,uid=1000,gid=1000
         volumes:
             - ~/jenkins_home:/var/jenkins_home
-            - ./master_init/init_bundle.groovy:/var/jenkins_home/init.groovy.d/init_bundle.groovy:ro
+            - ./master/init_bundle.groovy:/var/jenkins_home/init.groovy.d/init_bundle.groovy:ro
             - ./tasks:/var/jenkins_home/tasks:ro
         networks:
             - j-net
