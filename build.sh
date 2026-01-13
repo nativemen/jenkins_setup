@@ -13,8 +13,6 @@ cleanup_old_data() {
 # Step 2: Setup Jenkins security configuration
 setup_security_config() {
     echo "--> [2/5] Setting up Jenkins security configuration..."
-    mkdir -p ~/jenkins_home ./cores ./certs
-
     local should_setup_env=true
 
     if [ -f .env ]; then
@@ -68,6 +66,7 @@ generate_ssl_certificate() {
 # Step 4: Verify directory permissions
 verify_directory_permissions() {
     echo "--> [4/5] Verifying directory permissions..."
+    mkdir -p ~/jenkins_home ./cores
     chmod 755 ./master
     echo "[✓] directory permissions verified"
 }
