@@ -11,14 +11,14 @@ REPORT_DIR="/tmp/cores"
 
 echo "--- [MCP Diagnose] Starting AI Analysis for $EXE_NAME ---"
 
-# 1. 查找对应的 Core 文件 (保持原逻辑)
+# 1. Find corresponding core file (retain original logic)
 CORE_FILE=$(ls -t $CORE_DIR/core.${EXE_NAME}.* $CORE_DIR/core.${EXE_NAME} 2> /dev/null | head -1)
 
 if [ -z "$CORE_FILE" ]; then
     CORE_FILE=$(ls -t $CORE_DIR/core.* 2> /dev/null | grep -v "\.c$" | head -1)
 fi
 
-# 2. 验证 Core 文件是否有效
+# 2. Verify if core file is valid
 if [ ! -f "$CORE_FILE" ]; then
     echo "❌ Error: No coredump file found for $EXE_NAME"
     exit 0
@@ -26,15 +26,15 @@ fi
 
 echo "✅ Found Core File: $CORE_FILE"
 
-# 3. 【核心修改】调用 Python MCP 分析器生成 HTML 可视化报告
-# 之前的脚本只是重定向输出到 txt，现在我们直接让 Python 脚本通过 AI 生成 HTML 报告
+# 3. [Core Change] Invoke Python MCP analyzer to generate HTML visual reports
+# The previous script only redirected output to txt, now we let the Python script directly generate HTML reports via AI
 HTML_REPORT="${REPORT_DIR}/report-${EXE_NAME}.html"
 
 echo "--- Invoking AI LLM via mcp_analyzer.py ---"
-# 注意：路径需与你实际存放 mcp_analyzer.py 的位置一致
+# Note: Path must match your actual mcp_analyzer.py location
 python3 /home/jenkins/mcp_tools/mcp_analyzer.py "$BINARY" "$CORE_FILE" > "$HTML_REPORT" 2>&1
 
-# 4. 【核心修改】保留一个轻量级文本摘要供 Jenkins Console 查看
+# 4. [Core Change] Retain a lightweight text summary for Jenkins Console viewing
 TRACE_FILE="${REPORT_DIR}/trace-${EXE_NAME}.txt"
 echo "AI Diagnosis generated at $HTML_REPORT" > "$TRACE_FILE"
 echo "Summary of Stack Trace:" >> "$TRACE_FILE"

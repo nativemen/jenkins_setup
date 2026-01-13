@@ -5,10 +5,10 @@
 void corrupt_memory() {
     char *ptr = malloc(8);
 
-    // 故意溢出覆盖堆管理元数据
+    // Intentionally overflow to corrupt heap management metadata
     memset(ptr, 'A', 2048);
 
-    // 强制触发 glibc 的堆检查机制
+    // Force trigger glibc heap check mechanism
     char *ptr2 = malloc(8);
 
     free(ptr);

@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+RUN mkdir -p /var/jenkins_home/init.groovy.d && \
+    chown -R jenkins:jenkins /var/jenkins_home/init.groovy.d
+
 USER jenkins
 
 RUN jenkins-plugin-cli --plugins \

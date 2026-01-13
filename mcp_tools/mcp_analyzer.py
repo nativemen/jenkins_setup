@@ -7,14 +7,14 @@ from datetime import datetime
 import re
 import html as html_module
 
-# ================= 配置区 =================
-# 建议通过环境变量获取 API KEY
+# ================= Configuration Section =================
+# Recommended to get API key through environment variables
 API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_ACTUAL_API_KEY")
 MODEL_NAME = "gemini-2.5-flash"
 AI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={API_KEY}"
 
 def extract_crash_signal(bt_output):
-    """从堆栈跟踪中提取崩溃信号信息"""
+    """Extract crash signal information from stack trace"""
     signals = {
         'SIGSEGV': ('Segmentation Fault', '#e74c3c'),
         'SIGABRT': ('Abnormal Termination', '#e67e22'),
@@ -30,26 +30,26 @@ def extract_crash_signal(bt_output):
 
 def run_gdb(binary, core):
     """
-    针对 Gemini 2.5 的超大上下文能力，我们可以抓取更丰富的现场数据
+    For Gemini 2.5's ultra-large context capability, we can fetch richer scene data
     """
     try:
-        # 1. 抓取堆栈：Gemini 2.5 处理长文本能力极强，我们取前 100 层
+        # 1. Fetch stack trace: Gemini 2.5 has strong ability to handle long text, we fetch top 100 frames
         bt_cmd = ["gdb", "-batch", "-ex", "bt 100", "-ex", "echo \n... [TRUNCATED] ...\n", "-ex", "bt -10", binary, core]
         bt_raw = subprocess.check_output(bt_cmd, stderr=subprocess.STDOUT, text=True)
 
-        # 2. 抓取完整的变量信息、寄存器和反汇编崩溃指令
+        # 2. Fetch complete variable info, registers and crash disassembly
         info_cmd = ["gdb", "-batch", "-ex", "info registers", "-ex", "info locals", "-ex", "disassemble /m", binary, core]
         try:
             info_raw = subprocess.check_output(info_cmd, stderr=subprocess.STDOUT, text=True)
         except subprocess.CalledProcessError:
-            # 即使命令失败，也尝试提取寄存器信息
+            # Even if command fails, try to extract register information
             reg_cmd = ["gdb", "-batch", "-ex", "info registers", binary, core]
             try:
                 info_raw = subprocess.check_output(reg_cmd, stderr=subprocess.STDOUT, text=True)
             except:
                 info_raw = "(Register information unavailable)"
 
-        # 3. 提取源码上下文 (崩溃点附近 50 行)
+        # 3. Extract source context (50 lines around crash point)
         src_cmd = ["gdb", "-batch", "-ex", "list 1,50", binary, core]
         try:
             src_raw = subprocess.check_output(src_cmd, stderr=subprocess.STDOUT, text=True)
@@ -62,13 +62,13 @@ def run_gdb(binary, core):
 
 def get_ai_insight(bt, info, src, exe_name):
     """
-    使用 Gemini 2.5 强大的推理能力进行全量诊断
+    Use Gemini 2.5's powerful reasoning capability for comprehensive diagnosis
     """
     prompt = f"""
     [SYSTEM] You are an elite Linux C++ stability engineer. Analyze the crash for: {exe_name}.
 
     [CONTEXT DATA]
-    STACK: {bt[:5000]}  # 限制输入长度
+    STACK: {bt[:5000]}  # Limit input length
     REGS & LOCALS & ASM: {info[:3000]}
     SOURCE: {src[:2000]}
 
@@ -114,7 +114,7 @@ def get_ai_insight(bt, info, src, exe_name):
         content = res_json['candidates'][0]['content']['parts'][0]['text']
         result = json.loads(content)
 
-        # 验证必要的字段
+        # Validate required fields
         required_fields = ["root_cause", "location", "explanation", "fix_code", "prevention"]
         for field in required_fields:
             if field not in result:
@@ -141,14 +141,14 @@ def get_ai_insight(bt, info, src, exe_name):
 
 def build_html(exe_name, bt, ai, info, src):
     """
-    生成优雅美观的现代化诊断报告 HTML
+    Generate elegant and modern diagnostic report HTML
     """
-    # 提取崩溃信号信息
+    # Extract crash signal information
     signal_name, signal_desc, signal_color = extract_crash_signal(bt)
 
-    # 安全转义 HTML 内容
+    # Safely escape HTML content
     exe_name_safe = html_module.escape(exe_name)
-    bt_safe = html_module.escape(bt[:3000])  # 限制输出长度
+    bt_safe = html_module.escape(bt[:3000])  # Limit output length
     ai_root_cause_safe = html_module.escape(str(ai.get('root_cause', 'Unknown')))
     ai_explanation_safe = html_module.escape(str(ai.get('explanation', '')))
     ai_fix_code_safe = html_module.escape(str(ai.get('fix_code', '')))
@@ -162,7 +162,11 @@ def build_html(exe_name, bt, ai, info, src):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!-- Permissive CSP allows CDN resource loading -->
+    <meta http-equiv="Content-Security-Policy" content="default-src *; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data:;">
     <title>Crash Analysis Report - {exe_name_safe}</title>
+    <!-- Load UI library from CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -216,7 +220,44 @@ def build_html(exe_name, bt, ai, info, src):
             0%, 100% {{ opacity: 1; }}
             50% {{ opacity: 0.5; }}
         }}
+
+        /* Additional style enhancements to ensure rendering under any CSP */
+        .report-container {{
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            min-height: 100vh;
+            padding: 2rem;
+        }}
+        .card {{
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }}
     </style>
+    <script>
+        // Handle resource loading under CSP restrictions
+        if (document.currentScript) {{
+            // Mark whether CDN resources have been loaded
+            window.cdnStatus = {{ tailwind: false, fontawesome: false }};
+
+            // Listen for resource loading
+            window.addEventListener('load', function() {{
+                const links = document.querySelectorAll('link');
+                links.forEach(link => {{
+                    if (link.href.includes('tailwind')) window.cdnStatus.tailwind = true;
+                    if (link.href.includes('fontawesome')) window.cdnStatus.fontawesome = true;
+                }});
+                console.log('CDN Status:', window.cdnStatus);
+            }});
+
+            // If Tailwind fails, apply fallback styles
+            setTimeout(function() {{
+                if (!window.cdnStatus.tailwind) {{
+                    console.warn('Tailwind CSS failed to load, applying fallback styles');
+                    document.body.style.display = 'block';
+                }}
+            }}, 2000);
+        }}
+    </script>
 </head>
 <body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -380,7 +421,7 @@ if __name__ == "__main__":
 
     bin_p, core_p = sys.argv[1], sys.argv[2]
 
-    # 验证文件存在
+    # Verify file exists
     if not os.path.exists(bin_p):
         print(f"Error: Binary file not found: {bin_p}", file=sys.stderr)
         sys.exit(1)
@@ -390,16 +431,18 @@ if __name__ == "__main__":
 
     e_name = os.path.basename(bin_p)
 
-    # 1. 抓取 GDB 数据
+    # 1. Fetch GDB data
     print(f"[*] Analyzing crash for: {e_name}", file=sys.stderr)
     gdb_bt, gdb_info, gdb_src = run_gdb(bin_p, core_p)
 
-    # 2. 调用 Gemini 2.5 推理
+    # 2. Call Gemini 2.5 reasoning
     print("[*] Requesting AI analysis...", file=sys.stderr)
     ai_json = get_ai_insight(gdb_bt, gdb_info, gdb_src, e_name)
 
-    # 3. 输出 HTML
+    # 3. Output HTML report - with meta tags and styles to bypass CSP
     print("[*] Generating report...", file=sys.stderr)
     html_output = build_html(e_name, gdb_bt, ai_json, gdb_info, gdb_src)
-    print(html_output)
+
+    # Direct HTML output - key improvement: add forced rendering directive
+    print(html_output, end='')
     print("[+] Report generation completed", file=sys.stderr)

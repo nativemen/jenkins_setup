@@ -4,7 +4,7 @@
 void process_data(char *input) {
     char buffer[10];
 
-    // 故意：没有检查 input 是否为 NULL
+    // Intentional: no NULL check for input
     printf("Processing: %s\n", input);
 
     strcpy(buffer, input);

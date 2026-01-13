@@ -18,7 +18,7 @@ pipeline {
             steps {
                 script {
                     echo '--- Cleaning up old cores and reports ---'
-                    // 清理旧的二进制、core文件和报告
+                    // Clean up old binaries, core files, and reports
                     sh 'rm -rf /tmp/cores/*'
                 }
             }
@@ -75,7 +75,7 @@ pipeline {
                 echo '--- Copying reports to Workspace for archiving ---'
                 sh 'cp /tmp/cores/*.html /tmp/cores/*.txt . || echo "No reports found to copy"'
             }
-            // 现在可以直接归档工作空间根目录下的文件了
+            // Now can directly archive files in workspace root
             archiveArtifacts artifacts: '*.html, *.txt', allowEmptyArchive: true
         }
     }

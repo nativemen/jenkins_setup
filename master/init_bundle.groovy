@@ -1,62 +1,73 @@
 import jenkins.model.*
 import hudson.security.*
 import hudson.model.*
-import hudson.slaves.* // 显式导入 slaves 包以获取 RetentionStrategy
+import hudson.slaves.* // Explicitly import slaves package for RetentionStrategy
 import jenkins.security.s2m.AdminWhitelistRule
 import jenkins.install.InstallState
-import jenkins.model.JenkinsLocationConfiguration // 新增导入：修复 URL 告警
+import jenkins.model.JenkinsLocationConfiguration // New import: fix URL alert
 import java.util.logging.Logger
 
 def logger = Logger.getLogger('init_bundle.groovy')
 def j = Jenkins.get()
 
 /**
- * 【模块一：核心安全与身份验证】
- * 立即执行，用于锁定系统并创建初始管理员
+ * Module One: Core Security & Authentication
+ * Executed immediately to lock down the system and create initial admin
  */
 def setupCoreSecurity(j, logger) {
-    logger.info('--> [核心安全] 正在启动基础加固与身份验证配置...')
+    logger.info('--> [Core Security] Initializing hardening and authentication configuration...')
 
-    // 1. 开启 CSRF 防护
+    // 1. Enable CSRF Protection
     if (j.getCrumbIssuer() == null) {
-        j.setCrumbIssuer(new hudson.security.csrf.DefaultCrumbIssuer(true))
-        logger.info('   [✓] 已启用 CSRF 保护')
+        try {
+            def descriptor = hudson.security.csrf.DefaultCrumbIssuer.getDescriptor()
+            if (descriptor != null) {
+                j.setCrumbIssuer(descriptor.newInstance(null, true))
+                logger.info('   [✓] CSRF protection enabled')
+            } else {
+                logger.info('   [!] CSRF descriptor not yet available at init time, will be handled by plugins')
+            }
+        } catch (Exception e) {
+            logger.info("   [!] Skipping CSRF init (plugins may set it later): ${e.message}")
+        }
+    } else {
+        logger.info('   [✓] CSRF protection already enabled')
     }
 
-    // 2. 封杀不安全协议 (新增：彻底禁用 JNLP 1-4 协议)
+    // 2. Block Insecure Protocols (completely disable JNLP 1-4)
     if (!j.getAgentProtocols().isEmpty()) {
         j.getAgentProtocols().clear()
-        logger.info('   [✓] 已清空并禁用所有非加密 Agent 协议 (JNLP)')
+        logger.info('   [✓] Cleared and disabled all unencrypted agent protocols (JNLP)')
     }
 
-    // 3. 关闭不必要的 50000 端口 (新增：进一步收敛攻击面)
+    // 3. Close Unnecessary Port 50000 (further reduce attack surface)
     if (j.getSlaveAgentPort() != -1) {
         j.setSlaveAgentPort(-1)
-        logger.info('   [✓] 已彻底关闭 TCP Slave 代理端口 (50000)')
+        logger.info('   [✓] Completely closed TCP agent port (50000)')
     }
 
-    // 4. 自动配置 Jenkins URL (新增：修复网页红框告警)
+    // 4. Auto-configure Jenkins URL (fix red alert warnings on dashboard)
     def jlc = JenkinsLocationConfiguration.get()
     if (!jlc.getUrl()) {
-        jlc.setUrl('https://localhost/') // 根据您的 Nginx 环境设为 HTTPS
+        jlc.setUrl('https://localhost/') // Set to HTTPS for your Nginx environment
         jlc.setAdminAddress('admin@localhost')
-        logger.info('   [✓] 已自动配置 Jenkins URL 消除系统告警')
+        logger.info('   [✓] Auto-configured Jenkins URL to eliminate system alerts')
     }
 
-    // 5. 启用 Agent-to-Master 安全隔离
+    // 5. Enable Agent-to-Master Security Isolation
     try {
         def adminWhitelist = j.getDescriptorByType(AdminWhitelistRule.class)
         if (adminWhitelist != null) {
             adminWhitelist.setMasterKillSwitch(false)
-            logger.info('   [✓] 已配置 Agent 访问隔离策略')
+            logger.info('   [✓] Configured agent access isolation policy')
         } else {
-            logger.info('   [-] 当前版本 AdminWhitelistRule 默认生效或已由系统托管')
+            logger.info('   [-] Current version has AdminWhitelistRule enabled by default or managed by system')
         }
     } catch (Exception e) {
-        logger.warning("   [!] 配置 AdminWhitelistRule 时跳过: ${e.message}")
+        logger.warning("   [!] Skipped configuring AdminWhitelistRule: ${e.message}")
     }
 
-    // 6. 动态管理员密码生成与隐私保护
+    // 6. Dynamic Admin Password Generation & Privacy Protection
     if (!(j.getSecurityRealm() instanceof HudsonPrivateSecurityRealm)) {
         def dynamicPass = java.util.UUID.randomUUID().toString().replace('-', '')[0..23]
 
@@ -65,58 +76,58 @@ def setupCoreSecurity(j, logger) {
         j.setSecurityRealm(realm)
 
         def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
-        strategy.setAllowAnonymousRead(false) // 核心加固：严禁匿名访问
+        strategy.setAllowAnonymousRead(false) // Core hardening: strictly prohibit anonymous access
         j.setAuthorizationStrategy(strategy)
 
         try {
             def secretFile = new File('/run/secrets/tmp/initial_admin_password')
             secretFile.parentFile.mkdirs()
             secretFile.text = dynamicPass
-            logger.info('   [✓] 动态密码已安全存入内存卷')
+            logger.info('   [✓] Dynamic password securely stored in tmpfs volume')
         } catch (Exception e) {
-            logger.severe("   [!] 内存卷写入失败: ${e.message}。管理员密码为: ${dynamicPass}")
+            logger.severe("   [!] Failed to write to tmpfs volume: ${e.message}. Admin password: ${dynamicPass}")
         }
     }
 
-    // 7. 设置安装向导状态
+    // 7. Set Installation Wizard State
     if (j.getInstallState() != InstallState.INITIAL_SETUP_COMPLETED) {
         j.setInstallState(InstallState.INITIAL_SETUP_COMPLETED)
-        logger.info('   [✓] 已跳过初始化安装向导')
+        logger.info('   [✓] Skipped initial setup wizard')
     }
 
-    // 8. 禁用内置节点执行者
+    // 8. Disable Built-in Node Executors
     if (j.getNumExecutors() != 0) {
         j.setNumExecutors(0)
         j.setMode(Node.Mode.EXCLUSIVE)
-        logger.info('   [✓] 已将 Built-in Node 执行者数量设为 0')
+        logger.info('   [✓] Set Built-in Node executor count to 0')
     }
 
     j.save()
 }
 
 /**
- * 【模块二：插件依赖配置 (SSH/Credentials/Agent)】
- * 使用异步线程，避开插件尚未完全加载导致的异常
+ * Module Two: Plugin Dependency Configuration (SSH/Credentials/Agent)
+ * Use async threads to avoid exceptions caused by plugins not fully loaded
  */
 def setupPluginDependentConfig() {
     Thread.start {
         def logger = Logger.getLogger('init_bundle_delayed.groovy')
         def j = Jenkins.get()
 
-        // 等待 Jenkins 初始化完成
+        // Wait for Jenkins initialization to complete
         while (j.getInitLevel() != hudson.init.InitMilestone.COMPLETED) {
             Thread.sleep(5000)
         }
 
-        // 切换到系统权限执行敏感操作
+        // Switch to system permissions for sensitive operations
         def ctx = hudson.security.ACL.as(hudson.security.ACL.SYSTEM)
         try {
             if (j.getPlugin('credentials') == null || j.getPlugin('ssh-slaves') == null) {
-                logger.info('--> [延迟初始化信息] 插件未安装(Credentials/SSH Slaves)，跳过 Agent 配置。')
+                logger.info('--> [Delayed Initialization Info] Required plugins not installed (Credentials/SSH Slaves), skipping agent configuration.')
                 return
             }
 
-            logger.info('--> [延迟初始化] 插件已加载，开始高级配置...')
+            logger.info('--> [Delayed Initialization] Plugins loaded, starting advanced configuration...')
 
             def domainClass = Class.forName('com.cloudbees.plugins.credentials.domains.Domain')
             def sshKeyClass = Class.forName('com.cloudbees.jenkins.plugins.sshcredentials.impl.BasicSSHUserPrivateKey')
@@ -127,10 +138,17 @@ def setupPluginDependentConfig() {
             def store = j.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
 
             if (!store.getCredentials(domainClass.global()).find { it.id == credId }) {
-                def keyFile = '/dev/shm/id_ed25519'
-                ['ssh-keygen', '-t', 'ed25519', '-N', '', '-f', keyFile].execute().waitFor()
+                def keyFile = '/run/secrets/ssh_key'
+                def keyExists = new File(keyFile).exists()
 
-                def privKey = new File(keyFile).text
+                if (!keyExists) {
+                    logger.warning('   [!] SSH private key file not found at /run/secrets/ssh_key, generating temporary key')
+                    def tempKeyFile = '/tmp/id_ed25519'
+                    ['ssh-keygen', '-t', 'ed25519', '-N', '', '-f', tempKeyFile].execute().waitFor()
+                    keyFile = tempKeyFile
+                }
+
+                def privKey = new File(keyFile).text.trim()
                 def source = directSourceClass.getConstructor(String.class).newInstance(privKey)
 
                 def credentials = sshKeyClass.getConstructor(
@@ -141,11 +159,18 @@ def setupPluginDependentConfig() {
 
                 store.addCredentials(domainClass.global(), credentials)
 
-                new File('/var/jenkins_home/agent_pub_key.txt').text = new File("${keyFile}.pub").text
+                // Safely extract public key: extract from private key if it exists, otherwise from temp key file
+                def pubKeyFile = keyExists ? '/run/secrets/ssh_key.pub' : '/tmp/id_ed25519.pub'
+                if (new File(pubKeyFile).exists()) {
+                    new File('/var/jenkins_home/agent_pub_key.txt').text = new File(pubKeyFile).text.trim()
+                    new File(pubKeyFile).delete()
+                }
 
-                new File(keyFile).delete()
-                new File("${keyFile}.pub").delete()
-                logger.info('   [✓] Ed25519 凭据已注册')
+                // Only delete temporarily generated keys; keys in /run/secrets are managed by Docker
+                if (!keyExists) {
+                    new File('/tmp/id_ed25519').delete()
+                }
+                logger.info('   [✓] Ed25519 credential registered')
         }
 
             if (j.getNode('docker_agent') == null) {
@@ -163,7 +188,7 @@ def setupPluginDependentConfig() {
                     hudson.slaves.RetentionStrategy.INSTANCE, []
                 )
                 j.addNode(node)
-                logger.info("   [✓] Agent 节点 'docker_agent' 已注册")
+                logger.info("   [✓] Agent node 'docker_agent' registered")
             }
 
             def jobName = 'Coredump-Auto-Diagnostic'
@@ -175,23 +200,23 @@ def setupPluginDependentConfig() {
                                        .getConstructor(String.class, boolean.class)
                                        .newInstance(scriptFile.text, true)
                     job.setDefinition(flowDef)
-                    logger.info("   [✓] 已自动创建 Pipeline 任务: ${jobName}")
+                    logger.info("   [✓] Auto-created Pipeline job: ${jobName}")
 
                     job.scheduleBuild2(2)
-                    logger.info("   [✓] 已自动创建并触发 Pipeline 任务: ${jobName}")
+                    logger.info("   [✓] Auto-created and triggered Pipeline job: ${jobName}")
                 }
             }
 
             j.save()
-            logger.info('--> [延迟初始化] 所有自动化任务执行完毕。')
+            logger.info('--> [Delayed Initialization] All automation tasks completed.')
         } catch (Exception e) {
-            logger.severe('--> [延迟初始化失败] 错误详情: ' + e.toString())
+            logger.severe('--> [Delayed Initialization Failed] Error details: ' + e.toString())
         } finally {
             if (ctx != null) ctx.close()
     }
 }
 }
 
-// --- 启动顺序执行 ---
+// --- Execution order startup ---
 setupCoreSecurity(j, logger)
 setupPluginDependentConfig()
