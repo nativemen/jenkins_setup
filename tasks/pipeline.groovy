@@ -1,3 +1,76 @@
+/* groovylint-disable CompileStatic */
+
+String getFileName(String path) {
+    return path.split('/').last()
+}
+
+void verifyAgent() {
+    String nodeName = env.NODE_NAME
+    echo "Current Running Node: ${nodeName}"
+    if (nodeName == 'master') {
+        error('Error: Running on Master! Check Label configuration.')
+    }
+}
+
+void cleanupOldArtifacts() {
+    echo '--- Cleaning up old cores and reports ---'
+    sh 'rm -rf /tmp/cores/*'
+}
+
+void compileSources() {
+    sh '''
+        cd /home/jenkins/codes
+        for f in *.c; do
+            echo "Compiling $f..."
+            filename=$(basename "$f" .c)
+            gcc -g "$f" -o /tmp/cores/"$filename"
+        done
+    '''
+}
+
+void testExecutable(String exePath) {
+    String fileName = getFileName(exePath)
+    int exitCode = sh(
+        script: "ulimit -c unlimited && './${fileName}'",
+        returnStatus: true
+    )
+
+    if (exitCode != 0) {
+        echo "Crash Detected in ${fileName}! Starting diagnosis..."
+        String diagScript = '/home/jenkins/tasks/diagnose-crash.sh'
+        sh "bash '${diagScript}' '/tmp/cores/${fileName}'"
+    } else {
+        echo "Starting: ${fileName}"
+    }
+}
+
+Map<String, Closure> setupParallelExecutionStages(List<String> executables) {
+    Map<String, Closure> branches = [:]
+    executables.each { String exePath ->
+        String fileName = getFileName(exePath)
+        branches[fileName] = {
+            stage("Test: ${fileName}") {
+                // groovylint-disable-next-line InsecureRandom
+                int sleepTime = (Math.random() * 5).toInteger() + 1
+                sleep sleepTime
+                dir('/tmp/cores') {
+                    testExecutable(exePath)
+                }
+            }
+        }
+    }
+    return branches
+}
+
+void archiveReports() {
+    echo '--- Copying reports to Workspace for archiving ---'
+    sh 'cp /tmp/cores/*.html /tmp/cores/*.txt . 2>/dev/null || true'
+    archiveArtifacts(
+        artifacts: '*.html, *.txt',
+        allowEmptyArchive: true
+    )
+}
+
 pipeline {
     agent { label 'linux' }
 
@@ -5,11 +78,7 @@ pipeline {
         stage('Verify Agent') {
             steps {
                 script {
-                    def nodeName = env.NODE_NAME
-                    echo "Current Running Node: ${nodeName}"
-                    if (nodeName == 'master') {
-                        error('Error: Running on Master! Check Label configuration.')
-                    }
+                    verifyAgent()
                 }
             }
         }
@@ -17,9 +86,7 @@ pipeline {
         stage('Initial Cleanup') {
             steps {
                 script {
-                    echo '--- Cleaning up old cores and reports ---'
-                    // Clean up old binaries, core files, and reports
-                    sh 'rm -rf /tmp/cores/*'
+                    cleanupOldArtifacts()
                 }
             }
         }
@@ -27,13 +94,7 @@ pipeline {
         stage('Recursive Build') {
             steps {
                 script {
-                    sh '''
-                    cd /home/jenkins/codes
-                    for f in *.c; do
-                        echo "Compiling $f..."
-                        gcc -g "$f" -o "/tmp/cores/${f%.c}"
-                    done
-                    '''
+                    compileSources()
                 }
             }
         }
@@ -41,28 +102,16 @@ pipeline {
         stage('Parallel Execution & Analysis') {
             steps {
                 script {
-                    def executables = sh(script: 'find /tmp/cores -maxdepth 1 -executable -type f', returnStdout: true).trim().split('\n')
-                    def branches = [:]
-
-                    executables.each { exePath ->
-                        def fileName = exePath.split('/').last()
-                        branches[fileName] = {
-                            stage("Test: ${fileName}") {
-                                def sleepTime = Math.abs(new Random().nextInt() % 5) + 1
-                                sleep sleepTime
-
-                                dir('/tmp/cores') {
-                                    try {
-                                        echo "Starting: ${fileName}"
-                                        sh "ulimit -c unlimited && ./${fileName}"
-                                    } catch (Exception e) {
-                                        echo "💥 Crash Detected in ${fileName}! Starting diagnosis..."
-                                        sh "bash /home/jenkins/tasks/diagnose-crash.sh /tmp/cores/${fileName}"
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    String findCmd = 'find /tmp/cores -maxdepth 1 -executable -type f'
+                    List<String> executables = (
+                        sh(
+                            script: findCmd,
+                            returnStdout: true
+                        ).trim().split('\n')
+                    ) as List
+                    Map<String, Closure> branches = setupParallelExecutionStages(
+                        executables
+                    )
                     parallel branches
                 }
             }
@@ -72,11 +121,8 @@ pipeline {
     post {
         always {
             script {
-                echo '--- Copying reports to Workspace for archiving ---'
-                sh 'cp /tmp/cores/*.html /tmp/cores/*.txt . || echo "No reports found to copy"'
+                archiveReports()
             }
-            // Now can directly archive files in workspace root
-            archiveArtifacts artifacts: '*.html, *.txt', allowEmptyArchive: true
         }
     }
 }
