@@ -49,7 +49,7 @@ setup_security_config() {
 
 # Step 3: Generate SSL certificate
 generate_ssl_certificate() {
-    echo "--> [3/5] Generating ECDSA SSL certificate..."
+    echo "--> [3/5] Generating SSL certificate..."
     mkdir -p ./certs
 
     # Generate SSL Certificate
