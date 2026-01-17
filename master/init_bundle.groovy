@@ -1,10 +1,10 @@
 import jenkins.model.*
 import hudson.security.*
 import hudson.model.*
-import hudson.slaves.* // Explicitly import slaves package for RetentionStrategy
+import hudson.slaves.*
 import jenkins.security.s2m.AdminWhitelistRule
 import jenkins.install.InstallState
-import jenkins.model.JenkinsLocationConfiguration // New import: fix URL alert
+import jenkins.model.JenkinsLocationConfiguration
 import java.util.logging.Logger
 
 def logger = Logger.getLogger('init_bundle.groovy')

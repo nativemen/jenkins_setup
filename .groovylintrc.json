@@ -1,0 +1,37 @@
+{
+    "extends": "recommended",
+    "rules": {
+        "CompileStatic": "off",
+        "NoDef": "off",
+        "VariableTypeRequired": "off",
+        "MethodReturnTypeRequired": "off",
+        "MethodParameterTypeRequired": "off",
+
+        "NoWildcardImports": "off",
+        "JavaIoPackageAccess": "off",
+        "CatchException": "off",
+        "BusyWait": "off",
+        "ClassForName": "off",
+
+        "DuplicateNumberLiteral": "off",
+        "DuplicateStringLiteral": "off",
+        "Instanceof": "off",
+        "UnnecessaryGetter": "off",
+        "UnnecessarySetter": "off",
+
+        "LineLength": "off",
+        "MethodSize": "off",
+        "NestedBlockDepth": "off",
+        "IfStatementBraces": "off",
+
+        "UnnecessaryDotClass": "off",
+        "UnnecessaryPackageReference": "off",
+        "UnnecessaryToString": "off",
+        "ImplicitClosureParameter": "off",
+
+        "UnusedImport": "error",
+        "UnusedVariable": "error",
+        "EmptyIfStatement": "error",
+        "EmptyCatchBlock": "warn"
+    }
+}

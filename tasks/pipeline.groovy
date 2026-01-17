@@ -1,5 +1,3 @@
-/* groovylint-disable CompileStatic */
-
 String getFileName(String path) {
     return path.split('/').last()
 }
