@@ -5,7 +5,7 @@ set -e
 cleanup_old_data() {
     echo "--> [1/5] Cleaning up old data..."
     docker-compose down -v
-    sudo rm -rf ~/jenkins_home
+    rm -rf ~/jenkins_home
     rm -rf ./cores
     echo "[✓] Old data cleaned"
 }
