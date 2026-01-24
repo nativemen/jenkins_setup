@@ -10,7 +10,7 @@ import html as html_module
 # ================= Configuration Section =================
 # Recommended to get API key through environment variables
 API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_ACTUAL_API_KEY")
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3-flash"
 AI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={API_KEY}"
 
 def extract_crash_signal(bt_output):
@@ -30,10 +30,10 @@ def extract_crash_signal(bt_output):
 
 def run_gdb(binary, core):
     """
-    For Gemini 2.5's ultra-large context capability, we can fetch richer scene data
+    For Gemini X.Y's ultra-large context capability, we can fetch richer scene data
     """
     try:
-        # 1. Fetch stack trace: Gemini 2.5 has strong ability to handle long text, we fetch top 100 frames
+        # 1. Fetch stack trace: Gemini X.Y has strong ability to handle long text, we fetch top 100 frames
         bt_cmd = ["gdb", "-batch", "-ex", "bt 100", "-ex", "echo \n... [TRUNCATED] ...\n", "-ex", "bt -10", binary, core]
         bt_raw = subprocess.check_output(bt_cmd, stderr=subprocess.STDOUT, text=True)
 
@@ -62,7 +62,7 @@ def run_gdb(binary, core):
 
 def get_ai_insight(bt, info, src, exe_name):
     """
-    Use Gemini 2.5's powerful reasoning capability for comprehensive diagnosis
+    Use Gemini X.Y's powerful reasoning capability for comprehensive diagnosis
     """
     prompt = f"""
     [SYSTEM] You are an elite Linux C++ stability engineer. Analyze the crash for: {exe_name}.
@@ -279,7 +279,7 @@ def build_html(exe_name, bt, ai, info, src):
                     </div>
                     <div class="bg-white/10 backdrop-blur-md px-6 py-4 rounded-xl text-right border border-white/20 flex-shrink-0">
                         <p class="text-sm text-slate-300 mb-2">Powered by</p>
-                        <p class="text-white font-bold text-lg"><i class="fas fa-brain text-blue-400 mr-2"></i>Gemini 2.5 AI</p>
+                        <p class="text-white font-bold text-lg"><i class="fas fa-brain text-blue-400 mr-2"></i>Gemini AI</p>
                     </div>
                 </div>
             </div>
@@ -435,7 +435,7 @@ if __name__ == "__main__":
     print(f"[*] Analyzing crash for: {e_name}", file=sys.stderr)
     gdb_bt, gdb_info, gdb_src = run_gdb(bin_p, core_p)
 
-    # 2. Call Gemini 2.5 reasoning
+    # 2. Call Gemini X.Y reasoning
     print("[*] Requesting AI analysis...", file=sys.stderr)
     ai_json = get_ai_insight(gdb_bt, gdb_info, gdb_src, e_name)
 
