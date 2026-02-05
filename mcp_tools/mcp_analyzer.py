@@ -1,17 +1,18 @@
 import subprocess
 import sys
 import os
-import requests
 import json
 from datetime import datetime
-import re
 import html as html_module
 
+# Import the new AI providers module
+from ai_providers import AIAProviderFactory
+
 # ================= Configuration Section =================
-# Recommended to get API key through environment variables
-API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_ACTUAL_API_KEY")
-MODEL_NAME = "gemini-3-flash"
-AI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={API_KEY}"
+# AI provider is automatically detected from AI_PROVIDER environment variable
+# Default: google (Gemini) for backward compatibility
+# Supported: openai, anthropic, deepseek, google, xai, moonshot, alibaba, tencent
+
 
 def extract_crash_signal(bt_output):
     """Extract crash signal information from stack trace"""
@@ -28,12 +29,13 @@ def extract_crash_signal(bt_output):
             return sig, desc, color
     return 'UNKNOWN', 'Unknown Signal', '#95a5a6'
 
+
 def run_gdb(binary, core):
     """
-    For Gemini X.Y's ultra-large context capability, we can fetch richer scene data
+    Fetch GDB analysis data for crash diagnosis
     """
     try:
-        # 1. Fetch stack trace: Gemini X.Y has strong ability to handle long text, we fetch top 100 frames
+        # 1. Fetch stack trace (top 100 frames)
         bt_cmd = ["gdb", "-batch", "-ex", "bt 100", "-ex", "echo \n... [TRUNCATED] ...\n", "-ex", "bt -10", binary, core]
         bt_raw = subprocess.check_output(bt_cmd, stderr=subprocess.STDOUT, text=True)
 
@@ -42,7 +44,6 @@ def run_gdb(binary, core):
         try:
             info_raw = subprocess.check_output(info_cmd, stderr=subprocess.STDOUT, text=True)
         except subprocess.CalledProcessError:
-            # Even if command fails, try to extract register information
             reg_cmd = ["gdb", "-batch", "-ex", "info registers", binary, core]
             try:
                 info_raw = subprocess.check_output(reg_cmd, stderr=subprocess.STDOUT, text=True)
@@ -60,84 +61,58 @@ def run_gdb(binary, core):
     except Exception as e:
         return f"GDB Error: {str(e)}", "(Detailed info unavailable)", "(Source unavailable)"
 
+
+def build_analysis_prompt(exe_name: str, bt: str, info: str, src: str) -> str:
+    """
+    Build the analysis prompt for AI crash analysis
+    """
+    return f"""
+[SYSTEM] You are an elite Linux C++ stability engineer. Analyze the crash for: {exe_name}.
+
+[CONTEXT DATA]
+STACK: {bt[:5000]}
+REGS & LOCALS & ASM: {info[:3000]}
+SOURCE: {src[:2000]}
+
+[OBJECTIVE]
+1. Direct Cause: Tell me exactly why it crashed (Signal name & description).
+2. Deep Logic Analysis: Explain the memory/logic error (e.g., recursive depth, off-by-one, etc.).
+3. Source Fix: Provide the corrected C/C++ code.
+
+[STRICT OUTPUT FORMAT]
+Return ONLY a raw JSON object with these keys:
+"root_cause", "location", "explanation", "fix_code", "prevention"
+"""
+
+
 def get_ai_insight(bt, info, src, exe_name):
     """
-    Use Gemini X.Y's powerful reasoning capability for comprehensive diagnosis
+    Use AI model for comprehensive crash diagnosis
+
+    Provider is selected from environment variable AI_PROVIDER
+    Default: Google Gemini (for backward compatibility)
     """
-    prompt = f"""
-    [SYSTEM] You are an elite Linux C++ stability engineer. Analyze the crash for: {exe_name}.
+    # Create AI client based on configuration
+    client = AIAProviderFactory.create_client()
 
-    [CONTEXT DATA]
-    STACK: {bt[:5000]}  # Limit input length
-    REGS & LOCALS & ASM: {info[:3000]}
-    SOURCE: {src[:2000]}
+    # Get provider name for logging
+    provider_info = AIAProviderFactory.get_provider_info()
+    provider = os.getenv('AI_PROVIDER', 'google').lower()
+    provider_name = provider_info.get(provider, {}).get('name', 'AI')
 
-    [OBJECTIVE]
-    1. Direct Cause: Tell me exactly why it crashed (Signal name & description).
-    2. Deep Logic Analysis: Explain the memory/logic error (e.g., recursive depth, off-by-one, etc.).
-    3. Source Fix: Provide the corrected C/C++ code.
+    print(f"[*] Using AI provider: {provider_name}", file=sys.stderr)
 
-    [STRICT OUTPUT FORMAT]
-    Return ONLY a raw JSON object with these keys:
-    "root_cause", "location", "explanation", "fix_code", "prevention"
-    """
+    # Build prompt
+    prompt = build_analysis_prompt(exe_name, bt, info, src)
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}
-        ],
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "temperature": 0.05
-        }
-    }
+    # Call AI API
+    result = client.analyze(prompt)
 
-    try:
-        response = requests.post(AI_URL, json=payload, timeout=60)
-        res_json = response.json()
+    # Add provider info
+    result['provider'] = provider_name
 
-        if 'candidates' not in res_json:
-            error_msg = res_json.get('error', {}).get('message', 'Unknown error')
-            print(f"DEBUG: API Error -> {error_msg}", file=sys.stderr)
-            return {
-                "root_cause": "Analysis Pending",
-                "location": "N/A",
-                "explanation": "API analysis not available. Please check your Gemini API key and quota.",
-                "fix_code": "# Analyze the stack trace above for potential issues",
-                "prevention": "Enable memory sanitizers and use safe C++ practices."
-            }
+    return result
 
-        content = res_json['candidates'][0]['content']['parts'][0]['text']
-        result = json.loads(content)
-
-        # Validate required fields
-        required_fields = ["root_cause", "location", "explanation", "fix_code", "prevention"]
-        for field in required_fields:
-            if field not in result:
-                result[field] = f"(Unable to determine {field})"
-
-        return result
-    except json.JSONDecodeError as e:
-        print(f"JSON Parse Error: {str(e)}", file=sys.stderr)
-        return {
-            "root_cause": "Parse Error",
-            "explanation": "Failed to parse AI response",
-            "location": "N/A",
-            "fix_code": "# Check logs for details",
-            "prevention": "Retry analysis"
-        }
-    except Exception as e:
-        return {
-            "root_cause": "System Error",
-            "explanation": f"Analysis failed: {str(e)}",
-            "location": "N/A",
-            "fix_code": "# Manual analysis required",
-            "prevention": "Check network and API configuration"
-        }
 
 def build_html(exe_name, bt, ai, info, src):
     """
@@ -146,9 +121,12 @@ def build_html(exe_name, bt, ai, info, src):
     # Extract crash signal information
     signal_name, signal_desc, signal_color = extract_crash_signal(bt)
 
+    # Get provider name
+    provider_name = ai.get('provider', 'AI')
+
     # Safely escape HTML content
     exe_name_safe = html_module.escape(exe_name)
-    bt_safe = html_module.escape(bt[:3000])  # Limit output length
+    bt_safe = html_module.escape(bt[:3000])
     ai_root_cause_safe = html_module.escape(str(ai.get('root_cause', 'Unknown')))
     ai_explanation_safe = html_module.escape(str(ai.get('explanation', '')))
     ai_fix_code_safe = html_module.escape(str(ai.get('fix_code', '')))
@@ -163,10 +141,8 @@ def build_html(exe_name, bt, ai, info, src):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <!-- Permissive CSP allows CDN resource loading -->
     <meta http-equiv="Content-Security-Policy" content="default-src *; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data:;">
     <title>Crash Analysis Report - {exe_name_safe}</title>
-    <!-- Load UI library from CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -189,9 +165,6 @@ def build_html(exe_name, bt, ai, info, src):
         .signal-badge {{
             background: var(--signal-color);
         }}
-        .collapsible-section {{
-            transition: all 0.3s ease;
-        }}
         .stack-trace {{
             max-height: 500px;
             overflow-y: auto;
@@ -202,11 +175,6 @@ def build_html(exe_name, bt, ai, info, src):
         @keyframes fadeIn {{
             from {{ opacity: 0; transform: translateY(10px); }}
             to {{ opacity: 1; transform: translateY(0); }}
-        }}
-        .highlight-line {{
-            background: rgba(248, 113, 113, 0.1);
-            border-left: 3px solid #f87171;
-            padding-left: 12px;
         }}
         .status-indicator {{
             display: inline-block;
@@ -220,8 +188,6 @@ def build_html(exe_name, bt, ai, info, src):
             0%, 100% {{ opacity: 1; }}
             50% {{ opacity: 0.5; }}
         }}
-
-        /* Additional style enhancements to ensure rendering under any CSP */
         .report-container {{
             background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
             min-height: 100vh;
@@ -233,31 +199,6 @@ def build_html(exe_name, bt, ai, info, src):
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }}
     </style>
-    <script>
-        // Handle resource loading under CSP restrictions
-        if (document.currentScript) {{
-            // Mark whether CDN resources have been loaded
-            window.cdnStatus = {{ tailwind: false, fontawesome: false }};
-
-            // Listen for resource loading
-            window.addEventListener('load', function() {{
-                const links = document.querySelectorAll('link');
-                links.forEach(link => {{
-                    if (link.href.includes('tailwind')) window.cdnStatus.tailwind = true;
-                    if (link.href.includes('fontawesome')) window.cdnStatus.fontawesome = true;
-                }});
-                console.log('CDN Status:', window.cdnStatus);
-            }});
-
-            // If Tailwind fails, apply fallback styles
-            setTimeout(function() {{
-                if (!window.cdnStatus.tailwind) {{
-                    console.warn('Tailwind CSS failed to load, applying fallback styles');
-                    document.body.style.display = 'block';
-                }}
-            }}, 2000);
-        }}
-    </script>
 </head>
 <body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -279,7 +220,7 @@ def build_html(exe_name, bt, ai, info, src):
                     </div>
                     <div class="bg-white/10 backdrop-blur-md px-6 py-4 rounded-xl text-right border border-white/20 flex-shrink-0">
                         <p class="text-sm text-slate-300 mb-2">Powered by</p>
-                        <p class="text-white font-bold text-lg"><i class="fas fa-brain text-blue-400 mr-2"></i>Gemini AI</p>
+                        <p class="text-white font-bold text-lg"><i class="fas fa-brain text-blue-400 mr-2"></i>{provider_name}</p>
                     </div>
                 </div>
             </div>
@@ -287,7 +228,6 @@ def build_html(exe_name, bt, ai, info, src):
 
         <!-- Main Analysis Section -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-            <!-- Root Cause & Explanation (Left: 2 cols) -->
             <div class="lg:col-span-2">
                 <div class="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 fade-in" style="animation-delay: 0.1s;">
                     <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center">
@@ -313,7 +253,6 @@ def build_html(exe_name, bt, ai, info, src):
                 </div>
             </div>
 
-            <!-- Quick Info Card (Right: 1 col) -->
             <div class="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 fade-in" style="animation-delay: 0.2s;">
                 <h2 class="text-lg font-bold text-gray-900 mb-6 flex items-center">
                     <i class="fas fa-info-circle text-blue-500 mr-3"></i>Quick Info
@@ -355,7 +294,6 @@ def build_html(exe_name, bt, ai, info, src):
 
         <!-- Prevention & Stack Trace Section -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            <!-- Prevention Strategies -->
             <div class="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 fade-in" style="animation-delay: 0.4s;">
                 <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center">
                     <i class="fas fa-shield-halved text-blue-600 mr-3"></i>Prevention Strategies
@@ -365,7 +303,6 @@ def build_html(exe_name, bt, ai, info, src):
                 </div>
             </div>
 
-            <!-- Stack Trace Summary -->
             <div class="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 fade-in" style="animation-delay: 0.5s;">
                 <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center">
                     <i class="fas fa-layer-group text-purple-600 mr-3"></i>Stack Trace (Summary)
@@ -408,11 +345,12 @@ def build_html(exe_name, bt, ai, info, src):
         <!-- Footer -->
         <div class="mt-12 text-center text-gray-500 text-sm">
             <p><i class="fas fa-shield-alt mr-2"></i>Automated Crash Analysis Report - Generated on {timestamp}</p>
-            <p class="mt-2">For more information, consult your system administrator or development team.</p>
+            <p class="mt-2">AI Provider: {provider_name}</p>
         </div>
     </div>
 </body>
 </html>"""
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
@@ -435,14 +373,13 @@ if __name__ == "__main__":
     print(f"[*] Analyzing crash for: {e_name}", file=sys.stderr)
     gdb_bt, gdb_info, gdb_src = run_gdb(bin_p, core_p)
 
-    # 2. Call Gemini X.Y reasoning
+    # 2. Call AI for analysis (uses AI_PROVIDER env var)
     print("[*] Requesting AI analysis...", file=sys.stderr)
     ai_json = get_ai_insight(gdb_bt, gdb_info, gdb_src, e_name)
 
-    # 3. Output HTML report - with meta tags and styles to bypass CSP
+    # 3. Output HTML report
     print("[*] Generating report...", file=sys.stderr)
     html_output = build_html(e_name, gdb_bt, ai_json, gdb_info, gdb_src)
 
-    # Direct HTML output - key improvement: add forced rendering directive
     print(html_output, end='')
     print("[+] Report generation completed", file=sys.stderr)
