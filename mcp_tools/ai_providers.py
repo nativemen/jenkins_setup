@@ -1,13 +1,3 @@
-"""
-AI Provider Clients for Crash Analysis
-
-Supports multiple AI large language models:
-- International: OpenAI, Anthropic Claude, Google Gemini, xAI Grok, DeepSeek
-- Chinese: Moonshot Kimi, Alibaba Qwen, Tencent Hunyuan
-
-Each provider implements a consistent interface for code analysis tasks.
-"""
-
 import os
 import json
 import requests
@@ -17,102 +7,62 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from datetime import datetime
 
-
-# ==================== Unified Configuration ====================
-
-# Unified environment variables (single API_KEY and BASE_URL for all providers)
 API_KEY = os.getenv("API_KEY", "")
 BASE_URL = os.getenv("BASE_URL", "")
-
-
-# ==================== Provider Endpoints ====================
 
 PROVIDER_ENDPOINTS = {
     'openai': {
         'url': 'https://api.openai.com/v1/chat/completions',
         'default_model': 'gpt-4o-mini',
         'auth_type': 'bearer',
-        'models': [
-            'gpt-4o-mini',      # 轻量级版本，对开发者提供极高的基础免费调用额度
-            'gpt-4o',           # 完整版，性能更强
-            'gpt-4-turbo'      # 带日期戳版本
-        ]
+        'models': ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo']
     },
     'anthropic': {
         'url': 'https://api.anthropic.com/v1/messages',
         'default_model': 'claude-4-5-haiku',
         'auth_type': 'anthropic',
-        'models': [
-            'claude-4-5-haiku',  # 目前 Haiku 系列对新开发者账户仍提供一定金额的试用额度
-            'claude-3-5-haiku'   # 经典稳定版，现已转为低成本/开发者福利型号
-        ]
+        'models': ['claude-4-5-haiku', 'claude-3-5-haiku']
     },
     'google': {
         'url': 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
         'default_model': 'gemini-1.5-flash',
         'auth_type': 'query_param',
-        'models': [
-            'gemini-1.5-flash',  # AI Studio 永久免费层级主打模型
-            'gemini-1.5-pro',   # 高性能版本
-            'gemini-2.0-flash' # 新版本
-        ]
+        'models': ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash']
     },
     'deepseek': {
         'url': 'https://api.deepseek.com/v1/chat/completions',
         'default_model': 'deepseek-coder',
         'auth_type': 'bearer',
-        'models': [
-            'deepseek-coder',   # 官方代码专用模型（推荐，用于代码分析）
-            'deepseek-v4',     # 2026年2月新发布，官网通常对新老用户赠送巨量免费 token
-            'deepseek-r1-v2',   # 推理增强版，继续保持极具竞争力的免费/低价策略
-            'deepseek-chat'     # 通用对话模型的免费迭代版
-        ]
+        'models': ['deepseek-coder', 'deepseek-v4', 'deepseek-r1-v2', 'deepseek-chat']
     },
     'alibaba': {
         'url': 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
         'default_model': 'qwen3-turbo',
         'auth_type': 'bearer',
-        'models': [
-            'qwen3-turbo',       # 阿里云百炼平台长期提供 100万-200万 免费 token 试用
-            'qwen3-7b-instruct',  # 典型的开源尺寸，在公共接口中多为免费
-            'qwq-32b-preview'     # 专门的逻辑推理预览版，常有开发者激励免费计划
-        ]
+        'models': ['qwen3-turbo', 'qwen3-7b-instruct', 'qwq-32b-preview']
     },
     'moonshot': {
         'url': 'https://api.moonshot.cn/v1/chat/completions',
         'default_model': 'kimi-v1-8k',
         'auth_type': 'bearer',
-        'models': [
-            'kimi-v1-8k',        # Kimi API 长期存在的入门级免费额度模型
-            'kimi-k2.5-preview'   # 针对 2026 春节推出的限时免费测试模型
-        ]
+        'models': ['kimi-v1-8k', 'kimi-k2.5-preview']
     },
     'xai': {
         'url': 'https://api.x.ai/v1/chat/completions',
         'default_model': 'grok-2',
         'auth_type': 'bearer',
-        'models': [
-            'grok-2',          # Latest Grok model
-            'grok-2-vision'    # With vision capabilities
-        ]
+        'models': ['grok-2', 'grok-2-vision']
     },
     'tencent': {
         'url': 'https://api.hunyuan.cloud.tencent.com/v1/chat/completions',
         'default_model': 'hunyuan-pro',
         'auth_type': 'bearer',
-        'models': [
-            'hunyuan-pro',     # Professional model
-            'hunyuan-standard' # General use
-        ]
+        'models': ['hunyuan-pro', 'hunyuan-standard']
     }
 }
 
 
-# ==================== Base Class ====================
-
 class BaseAIClient(ABC):
-    """Abstract base class for AI provider clients"""
-
     def __init__(self, provider: str, api_key: Optional[str] = None, model: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
         self.provider = provider
         self.api_key = api_key or API_KEY
@@ -121,34 +71,28 @@ class BaseAIClient(ABC):
         self.temperature = kwargs.get('temperature', 0.05)
         self.max_tokens = kwargs.get('max_tokens', 4096)
 
-        # Get provider config
         self.config = PROVIDER_ENDPOINTS.get(provider, PROVIDER_ENDPOINTS['google'])
         if not self.model:
             self.model = self.config['default_model']
 
     @abstractmethod
     def get_headers(self) -> Dict[str, str]:
-        """Get request headers"""
         pass
 
     @abstractmethod
     def build_request_payload(self, prompt: str) -> Dict[str, Any]:
-        """Build the request payload"""
         pass
 
     @abstractmethod
     def parse_response(self, response: Dict) -> Dict:
-        """Parse the API response"""
         pass
 
     def get_api_url(self) -> str:
-        """Return the API endpoint URL"""
         if self.base_url:
             return f"{self.base_url}/v1/chat/completions"
         return self.config['url'].format(model=self.model)
 
     def analyze(self, prompt: str) -> Dict:
-        """Main method to call AI API and get analysis"""
         if not self.api_key:
             return {
                 "root_cause": "API Key Missing",
@@ -192,11 +136,7 @@ class BaseAIClient(ABC):
             }
 
 
-# ==================== Provider Clients ====================
-
 class OpenAIClient(BaseAIClient):
-    """OpenAI GPT-4/Chat completion API"""
-
     def get_provider_name(self):
         return "OpenAI GPT-4o"
 
@@ -226,8 +166,6 @@ class OpenAIClient(BaseAIClient):
 
 
 class AnthropicClient(BaseAIClient):
-    """Anthropic Claude API"""
-
     def get_provider_name(self):
         return "Anthropic Claude"
 
@@ -256,8 +194,6 @@ class AnthropicClient(BaseAIClient):
 
 
 class GoogleGeminiClient(BaseAIClient):
-    """Google Gemini API"""
-
     def get_provider_name(self):
         return "Google Gemini"
 
@@ -273,10 +209,10 @@ class GoogleGeminiClient(BaseAIClient):
         return {
             "contents": [{"parts": [{"text": prompt}]}],
             "safetySettings": [
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"}
             ],
             "generationConfig": {"response_mime_type": "application/json", "temperature": self.temperature}
         }
@@ -291,8 +227,6 @@ class GoogleGeminiClient(BaseAIClient):
 
 
 class XAIGrokClient(BaseAIClient):
-    """xAI Grok API"""
-
     def get_provider_name(self):
         return "xAI Grok"
 
@@ -318,8 +252,6 @@ class XAIGrokClient(BaseAIClient):
 
 
 class DeepSeekClient(BaseAIClient):
-    """DeepSeek API"""
-
     def get_provider_name(self):
         return "DeepSeek"
 
@@ -357,8 +289,6 @@ class DeepSeekClient(BaseAIClient):
 
 
 class MoonshotKimiClient(BaseAIClient):
-    """Moonshot Kimi API"""
-
     def get_provider_name(self):
         return "Moonshot Kimi"
 
@@ -384,8 +314,6 @@ class MoonshotKimiClient(BaseAIClient):
 
 
 class AlibabaQwenClient(BaseAIClient):
-    """Alibaba Tongyi Qwen API"""
-
     def get_provider_name(self):
         return "Alibaba Qwen"
 
@@ -411,8 +339,6 @@ class AlibabaQwenClient(BaseAIClient):
 
 
 class TencentHunyuanClient(BaseAIClient):
-    """Tencent Hunyuan/Yuanbao API"""
-
     def get_provider_name(self):
         return "Tencent Hunyuan"
 
@@ -437,11 +363,7 @@ class TencentHunyuanClient(BaseAIClient):
             return {"root_cause": "Parse Error", "explanation": "Failed to parse"}
 
 
-# ==================== Provider Factory ====================
-
 class AIAProviderFactory:
-    """Factory to create AI provider clients"""
-
     PROVIDERS = {
         'openai': OpenAIClient,
         'anthropic': AnthropicClient,
@@ -455,7 +377,6 @@ class AIAProviderFactory:
 
     @classmethod
     def create_client(cls, provider: str = None, model: str = None, **kwargs) -> BaseAIClient:
-        """Create an AI client based on provider name"""
         if not provider:
             provider = os.getenv('AI_PROVIDER', 'google').lower()
 
@@ -474,7 +395,6 @@ class AIAProviderFactory:
 
     @classmethod
     def get_provider_info(cls) -> Dict[str, Dict]:
-        """Return information about all providers"""
         return {
             'openai': {'name': 'OpenAI GPT-4o', 'default_model': 'gpt-4o-mini'},
             'anthropic': {'name': 'Anthropic Claude', 'default_model': 'claude-4-5-haiku'},

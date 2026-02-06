@@ -10,14 +10,9 @@ import java.util.logging.Logger
 def logger = Logger.getLogger('init_bundle.groovy')
 def j = Jenkins.get()
 
-/**
- * Module One: Core Security & Authentication
- * Executed immediately to lock down the system and create initial admin
- */
 def setupCoreSecurity(j, logger) {
     logger.info('--> [Core Security] Initializing hardening and authentication configuration...')
 
-    // 1. Enable CSRF Protection
     if (j.getCrumbIssuer() == null) {
         try {
             def descriptor = hudson.security.csrf.DefaultCrumbIssuer.getDescriptor()
@@ -34,27 +29,23 @@ def setupCoreSecurity(j, logger) {
         logger.info('   [✓] CSRF protection already enabled')
     }
 
-    // 2. Block Insecure Protocols (completely disable JNLP 1-4)
     if (!j.getAgentProtocols().isEmpty()) {
         j.getAgentProtocols().clear()
         logger.info('   [✓] Cleared and disabled all unencrypted agent protocols (JNLP)')
     }
 
-    // 3. Close Unnecessary Port 50000 (further reduce attack surface)
     if (j.getSlaveAgentPort() != -1) {
         j.setSlaveAgentPort(-1)
         logger.info('   [✓] Completely closed TCP agent port (50000)')
     }
 
-    // 4. Auto-configure Jenkins URL (fix red alert warnings on dashboard)
     def jlc = JenkinsLocationConfiguration.get()
     if (!jlc.getUrl()) {
-        jlc.setUrl('https://localhost/') // Set to HTTPS for your Nginx environment
+        jlc.setUrl('https://localhost/')
         jlc.setAdminAddress('admin@localhost')
         logger.info('   [✓] Auto-configured Jenkins URL to eliminate system alerts')
     }
 
-    // 5. Enable Agent-to-Master Security Isolation
     try {
         def adminWhitelist = j.getDescriptorByType(AdminWhitelistRule.class)
         if (adminWhitelist != null) {
@@ -67,7 +58,6 @@ def setupCoreSecurity(j, logger) {
         logger.warning("   [!] Skipped configuring AdminWhitelistRule: ${e.message}")
     }
 
-    // 6. Dynamic Admin Password Generation & Privacy Protection
     if (!(j.getSecurityRealm() instanceof HudsonPrivateSecurityRealm)) {
         def dynamicPass = java.util.UUID.randomUUID().toString().replace('-', '')[0..23]
 
@@ -76,7 +66,7 @@ def setupCoreSecurity(j, logger) {
         j.setSecurityRealm(realm)
 
         def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
-        strategy.setAllowAnonymousRead(false) // Core hardening: strictly prohibit anonymous access
+        strategy.setAllowAnonymousRead(false)
         j.setAuthorizationStrategy(strategy)
 
         try {
@@ -89,13 +79,11 @@ def setupCoreSecurity(j, logger) {
         }
     }
 
-    // 7. Set Installation Wizard State
     if (j.getInstallState() != InstallState.INITIAL_SETUP_COMPLETED) {
         j.setInstallState(InstallState.INITIAL_SETUP_COMPLETED)
         logger.info('   [✓] Skipped initial setup wizard')
     }
 
-    // 8. Disable Built-in Node Executors
     if (j.getNumExecutors() != 0) {
         j.setNumExecutors(0)
         j.setMode(Node.Mode.EXCLUSIVE)
@@ -105,21 +93,15 @@ def setupCoreSecurity(j, logger) {
     j.save()
 }
 
-/**
- * Module Two: Plugin Dependency Configuration (SSH/Credentials/Agent)
- * Use async threads to avoid exceptions caused by plugins not fully loaded
- */
 def setupPluginDependentConfig() {
     Thread.start {
         def logger = Logger.getLogger('init_bundle_delayed.groovy')
         def j = Jenkins.get()
 
-        // Wait for Jenkins initialization to complete
         while (j.getInitLevel() != hudson.init.InitMilestone.COMPLETED) {
             Thread.sleep(5000)
         }
 
-        // Switch to system permissions for sensitive operations
         def ctx = hudson.security.ACL.as(hudson.security.ACL.SYSTEM)
         try {
             if (j.getPlugin('credentials') == null || j.getPlugin('ssh-slaves') == null) {
@@ -159,28 +141,49 @@ def setupPluginDependentConfig() {
 
                 store.addCredentials(domainClass.global(), credentials)
 
-                // Safely extract public key: extract from private key if it exists, otherwise from temp key file
                 def pubKeyFile = keyExists ? '/run/secrets/ssh_key.pub' : '/tmp/id_ed25519.pub'
                 if (new File(pubKeyFile).exists()) {
                     new File('/var/jenkins_home/agent_pub_key.txt').text = new File(pubKeyFile).text.trim()
                     new File(pubKeyFile).delete()
                 }
 
-                // Only delete temporarily generated keys; keys in /run/secrets are managed by Docker
                 if (!keyExists) {
                     new File('/tmp/id_ed25519').delete()
                 }
                 logger.info('   [✓] Ed25519 credential registered')
-        }
+            }
 
             if (j.getNode('docker_agent') == null) {
                 def launcher = Class.forName('hudson.plugins.sshslaves.SSHLauncher')
                                     .getConstructor(String.class, int.class, String.class)
                                     .newInstance('jenkins-agent', 22, credId)
 
-                launcher.setSshHostKeyVerificationStrategy(
-                    Class.forName('hudson.plugins.sshslaves.verifiers.NonVerifyingKeyVerificationStrategy').newInstance()
-                )
+                def hostKeyFile = new File('/shared_keys/agent_host_key.txt')
+                def hostKey = null
+
+                def maxRetries = 30
+                def retryCount = 0
+                while (!hostKeyFile.exists() && retryCount < maxRetries) {
+                    Thread.sleep(2000)
+                    retryCount++
+                }
+
+                if (hostKeyFile.exists()) {
+                    hostKey = hostKeyFile.text.trim()
+                    logger.info("   [✓] Found agent host key for verification")
+                } else {
+                    logger.warning("   [!] Agent host key not found, waiting for agent to generate it")
+                }
+
+                if (hostKey) {
+                    def manualStrategy = Class.forName('hudson.plugins.sshslaves.verifiers.ManuallyProvidedKeyVerificationStrategy')
+                                                    .getConstructor(String.class)
+                                                    .newInstance(hostKey)
+                    launcher.setSshHostKeyVerificationStrategy(manualStrategy)
+                    logger.info('   [✓] SSH host key verification enabled (MITM protection)')
+                } else {
+                    logger.warning("   [!] Could not configure host key verification, agent may need restart")
+                }
 
                 def node = new hudson.slaves.DumbSlave(
                     'docker_agent', 'Docker Agent', '/home/jenkins', '2',
@@ -213,10 +216,9 @@ def setupPluginDependentConfig() {
             logger.severe('--> [Delayed Initialization Failed] Error details: ' + e.toString())
         } finally {
             if (ctx != null) ctx.close()
+        }
     }
 }
-}
 
-// --- Execution order startup ---
 setupCoreSecurity(j, logger)
 setupPluginDependentConfig()

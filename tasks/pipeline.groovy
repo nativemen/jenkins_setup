@@ -11,8 +11,13 @@ void verifyAgent() {
 }
 
 void cleanupOldArtifacts() {
-    echo '--- Cleaning up old cores and reports ---'
-    sh 'rm -rf /tmp/cores/*'
+    echo '--- Securely cleaning up old cores and reports ---'
+    sh '''
+        if [ -d /tmp/cores ]; then
+            find /tmp/cores -type f -exec shred -vfz -n 3 {} \\; 2>/dev/null || true
+            rm -rf /tmp/cores/*
+        fi
+    '''
 }
 
 void compileSources() {
@@ -48,7 +53,6 @@ Map<String, Closure> setupParallelExecutionStages(List<String> executables) {
         String fileName = getFileName(exePath)
         branches[fileName] = {
             stage("Test: ${fileName}") {
-                // groovylint-disable-next-line InsecureRandom
                 int sleepTime = (Math.random() * 5).toInteger() + 1
                 sleep sleepTime
                 dir('/tmp/cores') {

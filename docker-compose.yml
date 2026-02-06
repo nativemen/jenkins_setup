@@ -27,11 +27,12 @@ services:
         environment:
             - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Djava.awt.headless=true
         tmpfs:
-            - /run/secrets/tmp:mode=1777,uid=1000,gid=1000
+            - /run/secrets/tmp:mode=0700,uid=1000,gid=1000
         volumes:
             - ~/jenkins_home:/var/jenkins_home
             - ./master/init.groovy.d:/var/jenkins_home/init.groovy.d:ro
             - ./tasks:/var/jenkins_home/tasks:ro
+            - agent_host_keys:/shared_keys:ro
         networks:
             - j-net
         restart: unless-stopped
@@ -56,12 +57,9 @@ services:
             - BASE_URL=${BASE_URL}
         cap_add:
             - SYS_PTRACE
-            - SYS_ADMIN
             - SYS_RESOURCE
             - CHOWN
             - NET_BIND_SERVICE
-            - SETUID
-            - SETGID
         cap_drop:
             - NET_RAW
             - NET_ADMIN
@@ -78,6 +76,7 @@ services:
             - ./tasks:/home/jenkins/tasks:ro
             - ./mcp_tools:/home/jenkins/mcp_tools:ro
             - ./cores:/tmp/cores
+            - agent_host_keys:/shared_keys
         networks:
             - j-net
         restart: unless-stopped
@@ -90,3 +89,6 @@ services:
 networks:
     j-net:
         driver: bridge
+
+volumes:
+    agent_host_keys:
