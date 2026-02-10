@@ -151,7 +151,7 @@ def setupPluginDependentConfig() {
                     new File('/tmp/id_ed25519').delete()
                 }
                 logger.info('   [✓] Ed25519 credential registered')
-            }
+        }
 
             if (j.getNode('docker_agent') == null) {
                 def launcher = Class.forName('hudson.plugins.sshslaves.SSHLauncher')
@@ -170,9 +170,9 @@ def setupPluginDependentConfig() {
 
                 if (hostKeyFile.exists()) {
                     hostKey = hostKeyFile.text.trim()
-                    logger.info("   [✓] Found agent host key for verification")
+                    logger.info('   [✓] Found agent host key for verification')
                 } else {
-                    logger.warning("   [!] Agent host key not found, waiting for agent to generate it")
+                    logger.warning('   [!] Agent host key not found, waiting for agent to generate it')
                 }
 
                 if (hostKey) {
@@ -182,7 +182,7 @@ def setupPluginDependentConfig() {
                     launcher.setSshHostKeyVerificationStrategy(manualStrategy)
                     logger.info('   [✓] SSH host key verification enabled (MITM protection)')
                 } else {
-                    logger.warning("   [!] Could not configure host key verification, agent may need restart")
+                    logger.warning('   [!] Could not configure host key verification, agent may need restart')
                 }
 
                 def node = new hudson.slaves.DumbSlave(
@@ -216,8 +216,8 @@ def setupPluginDependentConfig() {
             logger.severe('--> [Delayed Initialization Failed] Error details: ' + e.toString())
         } finally {
             if (ctx != null) ctx.close()
-        }
     }
+}
 }
 
 setupCoreSecurity(j, logger)
