@@ -376,7 +376,7 @@ class AIAProviderFactory:
     }
 
     @classmethod
-    def create_client(cls, provider: str = None, model: str = None, **kwargs) -> BaseAIClient:
+    def create_client(cls, provider: Optional[str] = None, model: Optional[str] = None, **kwargs) -> BaseAIClient:
         if not provider:
             provider = os.getenv('AI_PROVIDER', 'google').lower()
 
